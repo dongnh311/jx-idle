@@ -28,6 +28,8 @@
   const TARGET_LEVEL = 150;       // level mục tiêu (MAX_LEVEL = 200)
   const GOLD_ADD = 10_000_000;    // vàng thêm (10 triệu)
   const KNB_ADD = 10_000;         // KNB thêm
+  const ATTPTS_ADD = 1500;        // điểm tiềm năng (thuộc tính) thêm
+  const SKPTS_ADD = 150;          // điểm kỹ năng thêm
   const SET_GRP = 21;             // bộ [Thiên Tứ] Ma Sát (bạch kim)
   const SET_PREFIX = "[Thiên Tứ]";// ưu tiên tiền tố bộ muốn lấy
   const HORSE_NAME = "Phiêu Vũ";  // tên ngựa
@@ -70,6 +72,14 @@
   // ---- 2) KNB ----
   const knbBefore = S.knb || 0;
   S.knb = knbBefore + KNB_ADD;
+
+  // ---- 3a) Điểm tiềm năng (thuộc tính) ----
+  const attBefore = S.attrPts || 0;
+  S.attrPts = attBefore + ATTPTS_ADD;
+
+  // ---- 3b) Điểm kỹ năng ----
+  const skBefore = S.skPts || 0;
+  S.skPts = skBefore + SKPTS_ADD;
 
   // ---- 3) Vàng ----
   const goldBefore = S.gold || 0;
@@ -141,6 +151,8 @@
   console.log(`Cấp: ${lvlBefore} → ${S.lvl}  (MAX=${typeof MAX_LEVEL !== "undefined" ? MAX_LEVEL : "?"})`);
   console.log(`KNB: ${fmt ? fmt(knbBefore) : knbBefore} → ${fmt ? fmt(S.knb) : S.knb}  (+${KNB_ADD})`);
   console.log(`Vàng: ${fmt ? fmt(goldBefore) : goldBefore} → ${fmt ? fmt(S.gold) : S.gold}  (+${GOLD_ADD.toLocaleString()})`);
+  console.log(`Điểm tiềm năng: ${attBefore} → ${S.attrPts}  (+${ATTPTS_ADD})`);
+  console.log(`Điểm kỹ năng: ${skBefore} → ${S.skPts}  (+${SKPTS_ADD})`);
   console.log(`Bạch kim bộ [Thiên Tứ] Ma Sát: ${setItems.length} món`);
   setItems.forEach((it) => console.log("  •", it.n));
   if (horse) console.log("  • Ngựa " + horse.n + " — " + (horse.base ? horse.base.length : 0) + " thuộc tính");
