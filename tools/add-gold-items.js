@@ -1,18 +1,23 @@
 // ============================================================================
-// SCRIPT: Thêm vàng + đồ cho nhân vật (Vô Lâm Idle) — BẢN AN TOÀN
+// SCRIPT: Bonus nhân vật (Vô Lâm Idle) — BẢN AN TOÀN
 // Chạy trong DevTools console của tab Chrome NƠI NHÂN VẬT CỦA BẠN TỒN TẠI
 //   (F12 -> tab Console -> paste -> Enter)
 //
-// ĐẢM BẢO KHÔNG XÓA DỮ LIỆU:
-//   1) Backup toàn bộ save hiện tại vào key RIÊNG (_preScript) — key này sống
-//      sót cả khi người dùng nhấn "Xóa nhân vật" (deleteSlot chỉ xóa key save
-//      + _bak, không xóa _preScript).
-//   2) Chỉ thêm vàng/đồ, KHÔNG bao giờ giảm/xóa bất cứ gì.
-//   3) Sau khi save(), KIỂM TRA chữ ký (unpack().ok). Nếu save mới sai ->
-//      TỰ HOÀN TÁC về backup, không để nhân vật bị hỏng.
-//   4) Chặn chạy trên nhân vật rỗng (S.fac null = newSave chưa có thật).
+// Làm được:
+//   - Nâng level nhân vật lên TARGET_LEVEL (mặc định 150; MAX_LEVEL = 200).
+//   - Thêm KNB (S.knb).
+//   - Thêm vàng (S.gold).
+//   - Thêm 1 BẠCH KIM BỘ (platina set) — toàn bộ món cùng bộ (grp).
+//   - Thêm 1 con ngựa Phiêu Vũ (trang bị ngựa, thuộc tính được tăng cường).
 //
-// Đồ sinh bằng makeItem() (hàm có sẵn của game) -> đúng schema, rarity tự động.
+// ĐẢM BẢO KHÔNG XÓA DỮ LIỆU:
+//   1) Backup toàn bộ save hiện tại vào key RIÊNG (_preScript) — sống sót cả
+//      khi "Xóa nhân vật" (deleteSlot chỉ xóa key save + _bak).
+//   2) Chỉ thêm, KHÔNG bao giờ giảm/xóa bất cứ gì.
+//   3) Sau save(), KIỂM TRA chữ ký (unpack().ok). Nếu sai -> TỰ HOÀN TÁC.
+//   4) Chặn chạy trên nhân vật rỗng (S.fac null).
+//
+// Đồ sinh bằng makeItem()/makeSetItem() (hàm có sẵn của game) -> đúng schema.
 // save() tự tính lại hash nên game KHÔNG báo "chỉnh sửa ngoài".
 // ============================================================================
 
@@ -20,22 +25,26 @@
   "use strict";
 
   // ---- Cấu hình ----
-  const GOLD_ADD = 10_000_000;          // số vàng thêm (10 triệu)
-  const ITEM_COUNT = 15;                 // số món đồ random
-  const ITEM_MAGICS = 4;                 // dòng ảo thuật: 3-4 -> rarity cao (tím)
-  const ITEM_TIER = null;                // cấp đồ: null = tự tính theo cấp nhân vật
+  const TARGET_LEVEL = 150;       // level mục tiêu (MAX_LEVEL = 200)
+  const GOLD_ADD = 10_000_000;    // vàng thêm (10 triệu)
+  const KNB_ADD = 10_000;         // KNB thêm
+  const SET_GRP = 21;             // bộ [Thiên Tứ] Ma Sát (bạch kim)
+  const SET_PREFIX = "[Thiên Tứ]";// ưu tiên tiền tố bộ muốn lấy
+  const HORSE_NAME = "Phiêu Vũ";  // tên ngựa
+  const HORSE_TIER = 10;          // cấp ngựa
+  const HORSE_BOOST = 6;          // hệ số tăng thuộc tính ngựa
 
-  // ---- Guard: phải có nhân vật THẬT (S.fac), không phải newSave() rỗng ----
+  // ---- Guard: phải có nhân vật THẬT ----
   if (typeof S === "undefined" || !S.fac) {
     alert(
       "Chưa có nhân vật thật!\n\n" +
-        "Nhân vật hiện tại chưa tạo (fac=null). Hãy tạo/chọn nhân vật rồi chạy lại.\n" +
-        "Script sẽ KHÔNG xóa gì cả, nhưng cũng không thêm vào nhân vật rỗng."
+        "Hãy tạo/chọn nhân vật rồi chạy lại.\n" +
+        "Script KHÔNG xóa gì, nhưng cũng không thêm vào nhân vật rỗng."
     );
     return;
   }
-  if (typeof makeItem !== "function") {
-    alert("Game chưa load xong (thiếu makeItem). đợi trang load rồi chạy lại.");
+  if (typeof makeItem !== "function" || typeof makeSetItem !== "function") {
+    alert("Game chưa load xong (thiếu makeItem/makeSetItem). đợi trang load rồi chạy lại.");
     return;
   }
 
@@ -45,75 +54,96 @@
 
   // ---- 0) BACK UP an toàn trước khi sửa đổi ----
   try {
-    // Đảm bảo _bak đang chứa state thật hiện tại (save() tự động lưu _bak)
-    if (typeof save === "function") save();
+    if (typeof save === "function") save(); // đảm bảo _bak chứa state thật
     const cur = localStorage.getItem(key);
-    if (cur) {
-      backupText = cur;
-      localStorage.setItem(backupKey, cur); // key riêng, sống sót sau deleteSlot
-    }
-  } catch (e) {
-    console.warn("Không lưu được backup:", e);
-  }
+    if (cur) { backupText = cur; localStorage.setItem(backupKey, cur); }
+  } catch (e) { console.warn("Không lưu được backup:", e); }
 
-  // ---- 1) Thêm vàng (không bao giờ giảm) ----
+  // ---- Đảm bảo chế độ cho phép bạch kim/hàng kim (g2) ----
+  // Nếu slot đang ở CTC/PHLT (không có Bạch Kim) thì makeSetItem("platina") trả null.
+  try { S.mode = "g2"; } catch (e) {}
+
+  // ---- 1) Level ----
+  const lvlBefore = S.lvl || 1;
+  S.lvl = TARGET_LEVEL;
+
+  // ---- 2) KNB ----
+  const knbBefore = S.knb || 0;
+  S.knb = knbBefore + KNB_ADD;
+
+  // ---- 3) Vàng ----
   const goldBefore = S.gold || 0;
   S.gold = goldBefore + GOLD_ADD;
 
-  // ---- 2) Tính cấp đồ theo nhân vật ----
-  const tierOf = () => {
-    if (ITEM_TIER != null) return Math.min(10, Math.max(1, ITEM_TIER));
-    const lvl = S.lvl || 1;
-    return Math.min(10, Math.max(1, Math.floor(lvl / 20) + 1));
-  };
-
-  // ---- 3) Thêm đồ random (chỉ unshift lên đầu túi, KHÔNG xóa gì) ----
-  const details = Object.keys(typeof J !== "undefined" && J.items ? J.items : {});
-  const gained = [];
-  for (const detail of details) {
-    if (gained.length >= ITEM_COUNT) break;
-    const rows = (J.items[detail] && J.items[detail].list) || [];
-    if (!rows.length) continue;
-    const particular = rows[0].k; // particular hợp lệ đầu tiên của slot
-    const it = makeItem(Number(detail), particular, tierOf(), ITEM_MAGICS);
-    if (it) {
-      S.inv.unshift(it); // đẩy lên đầu túi (ưu tiên nhìn thấy)
-      gained.push(it.n + " [" + it.d + "]");
+  // ---- 4) Bạch kim bộ [Thiên Tứ] Ma Sát (grp 21) ----
+  function buildSet() {
+    const all = (typeof J !== "undefined" && J.sets && J.sets.platina) || [];
+    const rows = all.filter((r) => r.grp === SET_GRP && (r.n || "").indexOf("Ma Sát") >= 0);
+    const bySlot = new Map();
+    for (const r of rows) {
+      const ex = bySlot.get(r.d);
+      if (!ex) bySlot.set(r.d, r);
+      else if ((r.n || "").startsWith(SET_PREFIX) && !(ex.n || "").startsWith(SET_PREFIX)) bySlot.set(r.d, r);
     }
+    const items = [];
+    for (const row of bySlot.values()) {
+      try {
+        const it = makeSetItem("platina", row, 10); // luck=10 -> dòng ảo thuật tối đa
+        if (it) items.push(it);
+      } catch (e) { console.error("Làm món bộ thất bại:", e); }
+    }
+    return items;
   }
+  const setItems = buildSet();
 
-  // ---- 4) Lưu + XÁC MINH chữ ký ----
+  // ---- 5) Ngựa Phiêu Vũ (tăng thuộc tính) ----
+  function buildHorse() {
+    let h;
+    try { h = makeItem(10, 0, HORSE_TIER, 4); } catch (e) { return null; }
+    if (!h) return null;
+    h.n = HORSE_NAME;
+    if (Array.isArray(h.base)) {
+      for (const line of h.base) {
+        line[1] *= HORSE_BOOST; line[2] *= HORSE_BOOST; // min,max
+        if (line[0] === 150) { line[1] = Math.abs(line[1]); line[2] = Math.abs(line[2]); } // phòng thủ dương
+      }
+    }
+    h.r = 2; // tím — hiển thị cao cấp
+    return h;
+  }
+  const horse = buildHorse();
+
+  // ---- Đẩy vào túi ----
+  const gained = [];
+  setItems.forEach((it) => { S.inv.unshift(it); gained.push("Bộ " + it.n); });
+  if (horse) { S.inv.unshift(horse); gained.push("Ngựa " + horse.n + " (cấp " + horse.lvl + ")"); }
+
+  // ---- 6) Lưu + XÁC MINH chữ ký ----
   let ok = false;
   try {
     save();
     const now = localStorage.getItem(key);
     if (now) ok = !!(now && unpack(now) && unpack(now).ok);
-  } catch (e) {
-    console.error("save() lỗi:", e);
-  }
+  } catch (e) { console.error("save() lỗi:", e); }
 
-  // ---- 5) Nếu save KHÔNG hợp lệ -> TỰ HOÀN TÁC về backup ----
+  // ---- 7) Nếu save KHÔNG hợp lệ -> TỰ HOÀN TÁC ----
   if (!ok && backupText) {
     try {
       localStorage.setItem(key, backupText);
-      console.warn("⚠️ Save mới sai chữ ký — đã hoàn tác về trạng thái trước script.");
+      console.warn("⚠️ Save sai chữ ký — đã hoàn tác.");
       if (typeof toast === "function") toast("Đã hoàn tác: save không hợp lệ");
-    } catch (e) {
-      console.error("Hoàn tác thất bại:", e);
-    }
+    } catch (e) { console.error("Hoàn tác thất bại:", e); }
   }
 
   // ---- Báo cáo ----
   console.clear();
-  console.log("%c✅ Đã thêm thành công (hoặc đã hoàn tác an toàn)", "color:#ffb347;font-size:16px;font-weight:bold");
-  console.log(`Vàng: ${fmt ? fmt(goldBefore) : goldBefore} → ${fmt ? fmt(S.gold) : S.gold}`);
-  console.log(`(+${GOLD_ADD.toLocaleString()} vàng)`);
-  console.log(`Đồ mới: ${gained.length} món  |  Túi hiện: ${S.inv.length} món`);
-  gained.slice(0, 8).forEach((n) => console.log("  •", n));
-  if (gained.length > 8) console.log(`  …(+${gained.length - 8} món khác)`);
-  console.log(ok ? "Chữ ký save: HỢP LỆ ✓" : "Chữ ký save: KHÔNG hợp lệ — đã hoàn tác.");
-  console.log(
-    "Ghi chú: mở tab Hành trang (Inv) để xem đồ. Để khôi phục thủ công: " +
-      "localStorage.getItem('" + backupKey + "')"
-  );
+  console.log("%c✅ Thêm thành công (hoặc hoàn tác an toàn)", "color:#ffb347;font-size:16px;font-weight:bold");
+  console.log(`Cấp: ${lvlBefore} → ${S.lvl}  (MAX=${typeof MAX_LEVEL !== "undefined" ? MAX_LEVEL : "?"})`);
+  console.log(`KNB: ${fmt ? fmt(knbBefore) : knbBefore} → ${fmt ? fmt(S.knb) : S.knb}  (+${KNB_ADD})`);
+  console.log(`Vàng: ${fmt ? fmt(goldBefore) : goldBefore} → ${fmt ? fmt(S.gold) : S.gold}  (+${GOLD_ADD.toLocaleString()})`);
+  console.log(`Bạch kim bộ [Thiên Tứ] Ma Sát: ${setItems.length} món`);
+  setItems.forEach((it) => console.log("  •", it.n));
+  if (horse) console.log("  • Ngựa " + horse.n + " — " + (horse.base ? horse.base.length : 0) + " thuộc tính");
+  console.log(`Túi hiện: ${S.inv.length} món  |  Chữ ký save: ${ok ? "HỢP LỆ ✓" : "KHÔNG hợp lệ — đã hoàn tác."}`);
+  console.log("Để khôi phục thủ công: localStorage.getItem('" + backupKey + "')");
 })();
