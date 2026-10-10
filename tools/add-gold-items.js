@@ -33,6 +33,12 @@
 (async function () {
   "use strict";
 
+  // ---- 0a) Tự áp unban-patch nếu người dùng đã chạy unban-patch.js trong
+  // Snippets (machine-override banWipe/netCheat — xem tools/unban-patch.js).
+  // Không bắt buộc: chưa có patch thì script vẫn chạy, chỉ là có thể bị
+  // máy chủ wipe lại sau ~60-100s vì tài khoản bị đánh dấu "dùng console".
+  if (typeof applyUnbanPatch === "function") { try { applyUnbanPatch(); } catch (e) {} }
+
   // ---- Cấu hình ----
   const TARGET_LEVEL = 150;       // level mục tiêu (MAX_LEVEL = 200)
   const GOLD_ADD = 10_000_000;    // vàng thêm (10 triệu)
