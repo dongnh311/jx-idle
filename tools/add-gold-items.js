@@ -6,9 +6,13 @@
 // Làm được:
 //   - Nâng level nhân vật lên TARGET_LEVEL (mặc định 150; MAX_LEVEL = 200).
 //   - Thêm KNB, vàng, điểm tiềm năng (attrPts), điểm kỹ năng (skPts).
-//   - Thêm ĐÚNG 2 món: thương + giáp bạch kim [Thiên Tứ] Ma Sát (grp 21).
+//   - Thêm 3 bộ trang bị Thiên Nhẫn (đều req môn phái = Thiên Nhẫn Giáo id 7,
+//     fixed=0 trong data live nên game hiển thị/không purge):
+//       + BẠCH KIM [Thiên Tứ] Ma Sát (grp 21, lv120) — CHỈ thương + giáp.
+//       + HOÀNG KIM Ma Hoàng (grp 22, lv80-99) — cả bộ 5 món.
+//       + HOÀNG KIM Ma Thị (grp 23, lv80-99) — cả bộ 5 món.
 //   - DỌN DẠC leftovers từ script cũ: ngựa "Phiêu Vũ" tự chế + các món
-//     Ma Sát còn lại (đai/nhẫn/uyển) — nếu còn nằm trong hành trang.
+//     bạch kim Ma Sát ngoài thương/giáp — nếu còn nằm trong hành trang.
 //   - Xóa field S.mode="g2" do script cũ ghi bậy (live game không có mode g2).
 //
 // VÌ SAO BẢN CŨ BỊ RESET DATA (đã kiểm tra source live v527):
@@ -35,8 +39,19 @@
   const KNB_ADD = 10_000;         // KNB thêm
   const ATTPTS_ADD = 1000;        // điểm tiềm năng (thuộc tính) thêm
   const SKPTS_ADD = 300;          // điểm kỹ năng thêm
-  const SET_GRP = 21;             // bộ [Thiên Tứ] Ma Sát (bạch kim)
-  const SET_KEEP_D = [0, 2];      // chỉ 2 slot: 0 = thương, 2 = giáp
+  const SET_GRP = 21;             // [Thiên Tứ] Ma Sát (bạch kim) — dùng cho dọn leftovers
+  const SET_KEEP_D = [0, 2];      // Ma Sát chỉ giữ 2 slot: 0 = thương, 2 = giáp
+  // Danh sách bộ sẽ thêm: { kind, grp, slots (null = cả bộ), nameMust }
+  // Cả 3 đều là bộ Thiên Nhẫn (req môn phái id 7), fixed=0 trong data live.
+  const noHan = (n) => !/[㐀-鿿]/.test(n); // bỏ các dòng tên Hán (trùng data, không dùng)
+  const SETS_TO_ADD = [
+    { kind: "platina", grp: 21, slots: SET_KEEP_D, label: "Bạch kim [Thiên Tứ] Ma Sát",
+      nameMust: (n) => n.startsWith("[Thiên Tứ]") && n.includes("Ma Sát") },
+    { kind: "gold", grp: 22, slots: null, label: "Hoàng kim Ma Hoàng",
+      nameMust: (n) => n.includes("Ma Hoàng") && noHan(n) },
+    { kind: "gold", grp: 23, slots: null, label: "Hoàng kim Ma Thị",
+      nameMust: (n) => n.includes("Ma Thị") && noHan(n) },
+  ];
 
   // ---- Guard: phải có nhân vật THẬT ----
   if (typeof S === "undefined" || !S.fac) {
@@ -114,26 +129,32 @@
     (S.inv || []).some((it) => it && it.n === name) ||
     Object.values(S.eq || {}).some((it) => it && it.n === name);
 
-  const rows = ((typeof J !== "undefined" && J.sets && J.sets.platina) || [])
-    .filter((r) => r.grp === SET_GRP && SET_KEEP_D.includes(r.d) &&
-      (r.n || "").startsWith("[Thiên Tứ]") && (r.n || "").includes("Ma Sát"));
-  const bySlot = new Map();
-  for (const r of rows) if (!bySlot.has(r.d)) bySlot.set(r.d, r);
-
   const setItems = [];
   const skipped = [];
-  for (const row of bySlot.values()) {
-    if (alreadyHas(row.n)) { skipped.push(row.n + " (đã có)"); continue; }
-    let it = null;
-    try { it = makeSetItem("platina", row, 6); } catch (e) { console.error("makeSetItem lỗi:", e); }
-    if (!it) { skipped.push(row.n + " (makeSetItem trả null)"); continue; }
-    if (itemRejected(it)) { skipped.push(row.n + " (game coi là đồ đã xóa — KHÔNG thêm)"); continue; }
-    setItems.push(it);
+  const addedPerSet = {};
+  for (const cfg of SETS_TO_ADD) {
+    addedPerSet[cfg.label] = 0;
+    const pool = (typeof J !== "undefined" && J.sets && J.sets[cfg.kind]) || [];
+    const rows = pool.filter((r) =>
+      r.grp === cfg.grp &&
+      (cfg.slots == null || cfg.slots.includes(r.d)) &&
+      cfg.nameMust(r.n || ""));
+    const bySlot = new Map();
+    for (const r of rows) if (!bySlot.has(r.d)) bySlot.set(r.d, r);
+    if (!bySlot.size) { skipped.push(cfg.label + " (KHÔNG tìm thấy row trong data game!)"); continue; }
+    for (const row of bySlot.values()) {
+      if (alreadyHas(row.n)) { skipped.push(row.n + " (đã có)"); continue; }
+      let it = null;
+      try { it = makeSetItem(cfg.kind, row, 6); } catch (e) { console.error("makeSetItem lỗi:", e); }
+      if (!it) { skipped.push(row.n + " (makeSetItem trả null)"); continue; }
+      if (itemRejected(it)) { skipped.push(row.n + " (game coi là đồ đã xóa — KHÔNG thêm)"); continue; }
+      setItems.push(it);
+      addedPerSet[cfg.label]++;
+    }
   }
 
   // ---- Đẩy vào túi ----
-  const gained = [];
-  setItems.forEach((it) => { S.inv.unshift(it); gained.push(it.n); });
+  setItems.forEach((it) => { S.inv.unshift(it); });
 
   // ---- 7) Lưu + XÁC MINH chữ ký ----
   let ok = false;
@@ -179,7 +200,9 @@
   console.log(`Vàng: ${goldBefore} → ${S.gold}  (+${GOLD_ADD.toLocaleString()})`);
   console.log(`Điểm tiềm năng: ${attBefore} → ${S.attrPts}  (+${ATTPTS_ADD})`);
   console.log(`Điểm kỹ năng: ${skBefore} → ${S.skPts}  (+${SKPTS_ADD})`);
-  console.log(`Thêm ${setItems.length} món:`, gained.join(" | ") || "(không)");
+  console.log(`Thêm ${setItems.length} món — theo bộ:`,
+    Object.entries(addedPerSet).map(([l, n]) => `${l}: ${n}`).join(" | "));
+  setItems.forEach((it, i) => console.log("  •", it.n));
   if (skipped.length) console.log("Bỏ qua:", skipped.join(" | "));
   if (removed.length) console.log(`Dọn ${removed.length} leftovers:`, removed.join(" | "));
   console.log(`Túi hiện: ${S.inv.length} món  |  Chữ ký save: ${ok ? "HỢP LỆ ✓" : "KHÔNG hợp lệ — đã hoàn tác."}`);
